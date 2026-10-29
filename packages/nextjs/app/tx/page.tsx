@@ -1,30 +1,30 @@
-/*
- * @description:
- * @param:
- * @return:
- * @Date: 2026-10-29 09:32:18
- */
 "use client";
 
 import { useState } from "react";
 import { createPublicClient, formatEther, http } from "viem";
 import { sepolia } from "viem/chains";
 
-const client = createPublicClient({ chain: sepolia, transport: http() });
+const client = createPublicClient({
+  chain: sepolia,
+  transport: http("https://ethereum-sepolia-rpc.publicnode.com"),
+});
 
-export default function Txpage() {
+const EXAMPLE_HASH = "0x62146f27e9b3ba4a401097758a3a6d99b71b751ced0d598ee0410decdfa3fc76";
+
+export default function TxPage() {
   const [hash, setHash] = useState("");
   const [result, setResult] = useState<{ tx: any; receipt: any } | null>(null);
+  const [explanation, setExplanation] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [explanation, setExplanation] = useState("");
-  const EXAMPLE_HASH = "0x62146f27e9b3ba4a401097758a3a6d99b71b751ced0d598ee0410decdfa3fc76";
+
   async function handleFetch(inputHash: string = hash) {
     setError("");
     setResult(null);
+    setExplanation("");
 
     if (!/^0x[a-fA-F0-9]{64}$/.test(inputHash)) {
-      setError("hash格式不对:0x+64位十六进制");
+      setError("Invalid hash: must be 0x + 64 hex characters");
       return;
     }
 
@@ -33,6 +33,7 @@ export default function Txpage() {
       const tx = await client.getTransaction({ hash: inputHash as `0x${string}` });
       const receipt = await client.getTransactionReceipt({ hash: inputHash as `0x${string}` });
       setResult({ tx, receipt });
+
       const res = await fetch("/api/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,40 +51,50 @@ export default function Txpage() {
           },
         }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "AI request failed");
       setExplanation(data.explanation);
     } catch (e: any) {
-      setError(e.shortMessage ?? e.message ?? "查询失败");
+      setError(e.shortMessage ?? e.message ?? "Query failed");
     } finally {
       setLoading(false);
     }
   }
+
   return (
-    <div className="flex flex-col items-center gap-4 pt-16 px-5">
-      <h1 className="text-3xl font-bold">TxLens</h1>
+    <div className="flex flex-col items-center gap-6 pt-12 px-5 pb-20">
+      <h1 className="text-4xl font-bold">TxLens</h1>
       <p className="text-center opacity-70 max-w-xl">
         Paste any Ethereum Sepolia transaction hash to see what actually happened, explained in plain language by AI.
       </p>
-      <input
-        className="input input-bordered w-full max-w-x"
-        placeholder="0x..."
-        value={hash}
-        onChange={e => setHash(e.target.value)}
-      />
-      <button className="btn btn-primary" onClick={() => handleFetch()} disabled={loading}>
-        {loading ? "查询中..." : "查询"}
-      </button>
-      <button
-        className="btn btn-sm"
-        onClick={() => {
-          setHash(EXAMPLE_HASH);
-          handleFetch(EXAMPLE_HASH);
-        }}
-      >
-        Try an example
-      </button>
-      {error && <p className="text-error">{error}</p>}
+
+      <div className="w-full max-w-2xl card bg-base-100 border border-base-300 shadow-sm">
+        <div className="card-body gap-3">
+          <input
+            className="input input-bordered w-full font-mono text-sm"
+            placeholder="0x..."
+            value={hash}
+            onChange={e => setHash(e.target.value)}
+          />
+          <button className="btn btn-primary w-full" onClick={() => handleFetch()} disabled={loading}>
+            {loading ? "Loading..." : "Explain transaction"}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              setHash(EXAMPLE_HASH);
+              handleFetch(EXAMPLE_HASH);
+            }}
+            disabled={loading}
+          >
+            Try an example
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-error max-w-2xl">{error}</p>}
+
       {result && (
         <div className="w-full max-w-2xl card bg-base-100 border border-base-300 shadow-sm">
           <div className="card-body">
@@ -111,6 +122,7 @@ export default function Txpage() {
           </div>
         </div>
       )}
+
       {explanation && (
         <div className="w-full max-w-2xl card bg-base-100 border border-base-300 shadow-sm">
           <div className="card-body">
