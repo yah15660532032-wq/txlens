@@ -18,6 +18,7 @@ contract YourContract {
     string public greeting = "Building Unstoppable Apps!!!";
     bool public premium = false;
     uint256 public totalCounter = 0;
+    uint256 public clickCount = 0;
     mapping(address => uint) public userGreetingCounter;
 
     // Events: a way to emit log statements from smart contract that can be listened to by external parties
@@ -60,6 +61,10 @@ contract YourContract {
 
         // emit: keyword used to trigger an event
         emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, msg.value);
+    }
+
+    function increment() public{
+        clickCount += 1;
     }
 
     /**
