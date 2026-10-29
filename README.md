@@ -1,83 +1,97 @@
-# 🏗 Scaffold-ETH 2
+# TxLens
 
-<h4 align="center">
-  <a href="https://docs.scaffoldeth.io">Documentation</a> |
-  <a href="https://scaffoldeth.io">Website</a>
-</h4>
+An AI-powered Ethereum transaction explainer. Paste a transaction hash and get
+on-chain details plus a plain-language explanation and risk hints.
 
-🧪 An open-source, up-to-date toolkit for building decentralized applications (dapps) on the Ethereum blockchain. It's designed to make it easier for developers to create and deploy smart contracts and build user interfaces that interact with those contracts.
+**[Live Demo](https://txlens-opal.vercel.app)**
 
-> [!NOTE]
-> 🤖 Scaffold-ETH 2 is AI-ready! It has everything agents need to build on Ethereum. Check `.agents/`, `.claude/`, `.opencode` or `.cursor/` for more info.
+![TxLens](./docs/home.png)
 
-⚙️ Built using NextJS, RainbowKit, Hardhat, Wagmi, Viem, and Typescript.
+## Why
 
-- ✅ **Contract Hot Reload**: Your frontend auto-adapts to your smart contract as you edit it.
-- 🪝 **[Custom hooks](https://docs.scaffoldeth.io/hooks/)**: Collection of React hooks wrapper around [wagmi](https://wagmi.sh/) to simplify interactions with smart contracts with typescript autocompletion.
-- 🧱 [**Components**](https://docs.scaffoldeth.io/components/): Collection of common web3 components to quickly build your frontend.
-- 🔥 **Burner Wallet & Local Faucet**: Quickly test your application with a burner wallet and local faucet.
-- 🔐 **Integration with Wallet Providers**: Connect to different wallet providers and interact with the Ethereum network.
+Block explorers show raw data: long hex addresses, gas numbers, raw input data.
+Most people cannot tell what a transaction actually did.
 
-![Debug Contracts tab](https://github.com/scaffold-eth/scaffold-eth-2/assets/55535804/b237af0c-5027-4849-a5c1-2e31495cccb1)
+TxLens turns a transaction into a human-readable summary, and flags things worth
+paying attention to.
 
-## Requirements
+## Features
 
-Before you begin, you need to install the following tools:
+- Fetch transaction + receipt from an Ethereum RPC
+- Show from / to / value / nonce / status / gas used
+- Generate a plain-language explanation with an LLM
+- Risk hints (e.g. self-transfers, plain transfers vs contract calls)
+- One-click example transaction for quick testing
 
-- [Node (>= v20.18.3)](https://nodejs.org/en/download/)
-- Yarn ([v1](https://classic.yarnpkg.com/en/docs/install/) or [v2+](https://yarnpkg.com/getting-started/install))
-- [Git](https://git-scm.com/downloads)
+![Result](./docs/result.png)
 
-## Quickstart
+## How it works
 
-To get started with Scaffold-ETH 2, follow the steps below:
+1. The client fetches `tx` and `receipt` with **viem**
+2. A slim, BigInt-safe payload is POSTed to `/api/explain`
+3. The API route calls the LLM with a structured prompt (API key stays server-side)
+4. The explanation is rendered next to the raw on-chain data
 
-1. Install dependencies if it was skipped in CLI:
+## Tech stack
 
-```
-cd my-dapp-example
+| Layer | Tech |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| UI | React 19, Tailwind CSS, daisyUI |
+| Chain access | viem |
+| Wallets | wagmi, RainbowKit |
+| LLM | DeepSeek (OpenAI-compatible API) |
+| Deploy | Vercel |
+
+## Run locally
+
+```bash
+git clone https://github.com/yah15660532032-wq/txlens.git
+cd txlens
 yarn install
 ```
 
-2. Run a local network in the first terminal:
+Create `packages/nextjs/.env.local`:
 
-```
-yarn chain
-```
-
-This command starts a local Ethereum network using Hardhat. The network runs on your local machine and can be used for testing and development. You can customize the network configuration in `packages/hardhat/hardhat.config.ts`.
-
-3. On a second terminal, deploy the test contract:
-
-```
-yarn deploy
+```env
+LLM_API_KEY=your_key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
 ```
 
-This command deploys a test smart contract to the local network. The contract is located in `packages/hardhat/contracts` and can be modified to suit your needs. The `yarn deploy` command uses the deploy script located in `packages/hardhat/deploy` to deploy the contract to the network. You can also customize the deploy script.
-
-4. On a third terminal, start your NextJS app:
-
-```
-yarn start
+```bash
+cd packages/nextjs
+yarn dev
 ```
 
-Visit your app on: `http://localhost:3000`. You can interact with your smart contract using the `Debug Contracts` page. You can tweak the app config in `packages/nextjs/scaffold.config.ts`.
+Open http://localhost:3000
 
-Run smart contract test with `yarn hardhat:test`
+## Project structure
 
-- Edit your smart contracts in `packages/hardhat/contracts`
-- Edit your frontend homepage at `packages/nextjs/app/page.tsx`. For guidance on [routing](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) and configuring [pages/layouts](https://nextjs.org/docs/app/building-your-application/routing/pages-and-layouts) checkout the Next.js documentation.
-- Edit your deployment scripts in `packages/hardhat/deploy`
+```
+packages/
+  nextjs/
+    app/
+      page.tsx            # redirects to /tx
+      tx/page.tsx         # main UI
+      api/explain/route.ts # LLM proxy (server-side key)
+  hardhat/                # Scaffold-ETH contracts (from template)
+```
 
+## Notes and trade-offs
 
-## Documentation
+- Used **viem + a public RPC** instead of the Etherscan API: no key needed and
+  no rate-limit issues for single-transaction lookups
+- The LLM key is kept in a Next.js route handler and never shipped to the browser
+- BigInt fields must be stringified before `JSON.stringify` — otherwise it throws
+- The prompt explicitly forbids the model from inventing data it cannot see
 
-Visit our [docs](https://docs.scaffoldeth.io) to learn how to start building with Scaffold-ETH 2.
+## Known limitations
 
-To know more about its features, check out our [website](https://scaffoldeth.io).
+- Sepolia only for now
+- Contract method names are not decoded yet (raw `input` is shown to the model)
+- Explanation is generated in Chinese
 
-## Contributing to Scaffold-ETH 2
+## License
 
-We welcome contributions to Scaffold-ETH 2!
-
-Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob/main/CONTRIBUTING.md) for more information and guidelines for contributing to Scaffold-ETH 2.
+MIT
