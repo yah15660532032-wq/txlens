@@ -41,6 +41,9 @@ export async function GET(req: Request) {
   url.searchParams.set("topic0_1_opr", "and");
   url.searchParams.set("page", "1");
   url.searchParams.set("offset", "100");
+  // Etherscan rejects getLogs without an explicit block range (returns "Invalid API Key")
+  url.searchParams.set("fromBlock", "0");
+  url.searchParams.set("toBlock", "latest");
   url.searchParams.set("apikey", process.env.ETHERSCAN_API_KEY ?? "");
 
   try {
@@ -53,7 +56,9 @@ export async function GET(req: Request) {
       if (message.toLowerCase().includes("no records")) {
         return NextResponse.json({ spenders: [], count: 0 });
       }
-      return NextResponse.json({ error: message || "etherscan error", result: json.result ?? [] }, { status: 502 });
+      // When status is "0", Etherscan puts the useful text in `result`
+      const detail = typeof json.result === "string" && json.result ? json.result : message;
+      return NextResponse.json({ error: detail || "etherscan error", result: json.result ?? [] }, { status: 502 });
     }
 
     // topics[2] = spender
