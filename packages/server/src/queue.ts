@@ -8,6 +8,8 @@ export const redisConnection = {
   port: Number(url.port || 6379),
   password: url.password || undefined,
   username: url.username || undefined,
+  // Upstash (and most managed Redis) require TLS: rediss://
+  tls: url.protocol === "rediss:" ? {} : undefined,
   maxRetriesPerRequest: null as null,
 };
 

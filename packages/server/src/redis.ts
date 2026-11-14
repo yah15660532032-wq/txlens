@@ -16,3 +16,18 @@ redis.on("error", (error: Error) => {
 export async function closeRedis(): Promise<void> {
   await redis.quit();
 }
+
+/** Bounded health probe: never let a dead Redis hang the health endpoint. */
+export async function pingRedis(timeoutMs = 1500): Promise<boolean> {
+  try {
+    const result = await Promise.race([
+      redis.ping(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("redis ping timeout")), timeoutMs),
+      ),
+    ]);
+    return result === "PONG";
+  } catch {
+    return false;
+  }
+}

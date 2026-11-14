@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 import { closeDb, pingDb } from "./db.js";
 import { scanQueue } from "./queue.js";
-import { closeRedis, redis } from "./redis.js";
+import { closeRedis, pingRedis, redis } from "./redis.js";
 import { createRevoke, createScan, listScans } from "./repos/scans.js";
 import { startWorker } from "./worker.js";
 
@@ -71,10 +71,13 @@ app.register(cors, {
 });
 
 app.get("/health", async (_request, reply) => {
-  const dbUp = await pingDb();
-  return reply.code(dbUp ? 200 : 503).send({
-    status: dbUp ? "ok" : "degraded",
+  const [dbUp, redisUp] = await Promise.all([pingDb(), pingRedis()]);
+  const ok = dbUp && redisUp;
+
+  return reply.code(ok ? 200 : 503).send({
+    status: ok ? "ok" : "degraded",
     db: dbUp ? "up" : "down",
+    redis: redisUp ? "up" : "down",
     uptime: process.uptime(),
   });
 });
