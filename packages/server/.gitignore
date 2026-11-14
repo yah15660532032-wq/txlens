@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.log
+
+# local test payloads
+body.json
+scan.json
+scan-*.json
+revoke.json
