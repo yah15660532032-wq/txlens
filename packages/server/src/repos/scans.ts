@@ -64,6 +64,25 @@ export async function createScan(
 }
 
 /**
+ * Record a revoke attempt. Kept separate from `approvals` because a revoke has
+ * its own lifecycle (pending → confirmed / failed).
+ */
+export async function createRevoke(
+  approvalId: string,
+  status: "pending" | "confirmed" | "failed",
+  txHash: string | null,
+): Promise<string> {
+  const { rows } = await pool.query<{ id: string }>(
+    `insert into revokes (approval_id, tx_hash, status)
+     values ($1, $2, $3)
+     returning id`,
+    [approvalId, txHash, status],
+  );
+
+  return rows[0].id;
+}
+
+/**
  * Read a scan list with approvals aggregated per scan.
  * Uses the (owner_address, created_at desc) index.
  */
@@ -78,6 +97,7 @@ export async function listScans(owner: string, limit = 20) {
        coalesce(
          json_agg(
            json_build_object(
+             'approvalId', a.id,
              'symbol', a.token_symbol,
              'tokenAddress', a.token_address,
              'spender', a.spender_address,

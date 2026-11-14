@@ -4,15 +4,8 @@ import { useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { erc20Abi, formatUnits } from "viem";
 import { useAccount, useWriteContract } from "wagmi";
-import {
-  type Approval,
-  client,
-  isUnlimited,
-  riskOf,
-  scanApprovals,
-  shortAddress,
-  spenderLabel,
-} from "~~/utils/approvals";
+import { type UiApproval, recordRevoke, scanViaServer } from "~~/utils/api";
+import { client, shortAddress, spenderLabel } from "~~/utils/approvals";
 
 const RISK_STYLE: Record<string, string> = {
   high: "badge-error",
@@ -28,7 +21,7 @@ export default function WalletPage() {
 
   const [target, setTarget] = useState("");
   const [scannedOwner, setScannedOwner] = useState("");
-  const [approvals, setApprovals] = useState<Approval[] | null>(null);
+  const [approvals, setApprovals] = useState<UiApproval[] | null>(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -40,7 +33,7 @@ export default function WalletPage() {
     setApprovals(null);
     setScanning(true);
     try {
-      const result = await scanApprovals(owner);
+      const result = await scanViaServer(owner);
       setApprovals(result);
       setScannedOwner(owner);
     } catch (e: any) {
@@ -59,28 +52,35 @@ export default function WalletPage() {
     void runScan(owner);
   }
 
-  async function handleRevoke(a: Approval) {
+  async function handleRevoke(a: UiApproval) {
     const key = a.token + a.spender;
     setRevokeError("");
     setRevoking(key);
     setStatus(s => ({ ...s, [key]: "signing" }));
 
+    let hash: `0x${string}` | undefined;
+
     try {
-      const hash = await writeContractAsync({
-        address: a.token,
+      hash = await writeContractAsync({
+        address: a.token as `0x${string}`,
         abi: erc20Abi,
         functionName: "approve",
-        args: [a.spender, 0n],
+        args: [a.spender as `0x${string}`, 0n],
       });
 
       setStatus(s => ({ ...s, [key]: "pending" }));
+      // Best-effort audit trail; the chain receipt is still the source of truth
+      void recordRevoke(a.approvalId, "pending", hash).catch(() => undefined);
+
       await client.waitForTransactionReceipt({ hash });
       setStatus(s => ({ ...s, [key]: "done" }));
+      void recordRevoke(a.approvalId, "confirmed", hash).catch(() => undefined);
 
       // Refresh the list so the revoked row disappears
       if (scannedOwner) void runScan(scannedOwner);
     } catch (e: any) {
       setStatus(s => ({ ...s, [key]: "error" }));
+      if (hash) void recordRevoke(a.approvalId, "failed", hash).catch(() => undefined);
       // 4001 = user rejected the signature request in the wallet
       if (e?.code === 4001 || /rejected/i.test(e?.message ?? "")) {
         setRevokeError("You rejected the transaction in your wallet.");
@@ -140,7 +140,7 @@ export default function WalletPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <span className="font-bold">{a.symbol}</span>
-                      <span className={`badge badge-sm ${RISK_STYLE[riskOf(a)]}`}>{riskOf(a).toUpperCase()}</span>
+                      <span className={`badge badge-sm ${RISK_STYLE[a.riskLevel]}`}>{a.riskLevel.toUpperCase()}</span>
                     </div>
                     <span className="text-xs opacity-60">{spenderLabel(a.spender)}</span>
                   </div>
@@ -152,7 +152,7 @@ export default function WalletPage() {
                   <p className="text-sm">
                     Allowance:{" "}
                     <span className="font-semibold">
-                      {isUnlimited(a.allowance) ? "Unlimited" : `${formatUnits(a.allowance, a.decimals)} ${a.symbol}`}
+                      {a.isUnlimited ? "Unlimited" : `${formatUnits(a.allowance, a.decimals)} ${a.symbol}`}
                     </span>
                   </p>
 

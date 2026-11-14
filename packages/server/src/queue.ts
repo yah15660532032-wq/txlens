@@ -14,15 +14,6 @@ export const redisConnection = {
 export type ScanJobData = {
   owner: string;
   chainId: number;
-  riskScore: number;
-  approvals: {
-    tokenAddress: string;
-    tokenSymbol: string;
-    spenderAddress: string;
-    allowanceRaw: string;
-    isUnlimited: boolean;
-    riskLevel: "high" | "medium" | "low";
-  }[];
 };
 
 export const scanQueue = new Queue<ScanJobData>("scan", {

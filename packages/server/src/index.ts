@@ -1,10 +1,11 @@
 import "dotenv/config";
+import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { z } from "zod";
 import { closeDb, pingDb } from "./db.js";
 import { scanQueue } from "./queue.js";
 import { closeRedis, redis } from "./redis.js";
-import { createScan, listScans } from "./repos/scans.js";
+import { createRevoke, createScan, listScans } from "./repos/scans.js";
 import { startWorker } from "./worker.js";
 
 const app = Fastify({
@@ -42,12 +43,32 @@ const createScanBody = z.object({
     .default([]),
 });
 
+const createAsyncScanBody = z.object({
+  owner: address,
+  chainId: z.number().int().positive().default(1),
+});
+
+const createRevokeBody = z.object({
+  approvalId: z.string().uuid(),
+  status: z.enum(["pending", "confirmed", "failed"]),
+  txHash: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/)
+    .nullable()
+    .default(null),
+});
+
 const listScansQuery = z.object({
   owner: address,
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 // ---------- routes ----------
+
+app.register(cors, {
+  origin: (process.env.CORS_ORIGIN ?? "http://localhost:3000").split(","),
+  methods: ["GET", "POST"],
+});
 
 app.get("/health", async (_request, reply) => {
   const dbUp = await pingDb();
@@ -142,7 +163,7 @@ app.get("/api/scans", async (request, reply) => {
 const worker = startWorker();
 
 app.post("/api/scans/async", async (request, reply) => {
-  const parsed = createScanBody.safeParse(request.body);
+  const parsed = createAsyncScanBody.safeParse(request.body);
 
   if (!parsed.success) {
     return reply.code(400).send({
@@ -175,6 +196,26 @@ app.get("/api/jobs/:id", async (request, reply) => {
     },
     error: null,
   });
+});
+
+app.post("/api/revokes", async (request, reply) => {
+  const parsed = createRevokeBody.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      data: null,
+      error: "invalid body",
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  try {
+    const id = await createRevoke(parsed.data.approvalId, parsed.data.status, parsed.data.txHash);
+    return reply.code(201).send({ data: { id }, error: null });
+  } catch (error) {
+    request.log.error({ err: error }, "createRevoke failed");
+    return reply.code(500).send({ data: null, error: "failed to store revoke" });
+  }
 });
 
 // ---------- lifecycle ----------

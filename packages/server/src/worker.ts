@@ -2,19 +2,21 @@ import { Worker } from "bullmq";
 import { redisConnection, type ScanJobData } from "./queue.js";
 import { redis } from "./redis.js";
 import { createScan } from "./repos/scans.js";
+import { scanOwner } from "./scan.js";
 
 export function startWorker(): Worker<ScanJobData> {
   const worker = new Worker<ScanJobData>(
     "scan",
     async (job) => {
-      const { owner, chainId, riskScore, approvals } = job.data;
+      const { owner, chainId } = job.data;
 
-      // In a real app this is where the Etherscan/RPC scan happens.
-      // Here we persist what the caller sent, so the flow is observable.
+      const { approvals, riskScore } = await scanOwner(owner, chainId);
       const scanId = await createScan(owner, chainId, riskScore, approvals);
+
       // The list cache is keyed by owner; drop it after a background write
       await redis.del(`scans:${owner.toLowerCase()}`).catch(() => undefined);
-      return { scanId };
+
+      return { scanId, approvalCount: approvals.length };
     },
     {
       connection: redisConnection,
