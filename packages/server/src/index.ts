@@ -2,7 +2,10 @@ import "dotenv/config";
 import Fastify from "fastify";
 import { z } from "zod";
 import { closeDb, pingDb } from "./db.js";
+import { scanQueue } from "./queue.js";
+import { closeRedis, redis } from "./redis.js";
 import { createScan, listScans } from "./repos/scans.js";
+import { startWorker } from "./worker.js";
 
 const app = Fastify({
   logger: {
@@ -88,12 +91,17 @@ app.post("/api/scans", async (request, reply) => {
 
   try {
     const scanId = await createScan(owner, chainId, riskScore, approvals);
+    // Invalidate the cached list for this owner
+    await redis.del(`scans:${owner.toLowerCase()}`).catch(() => undefined);
     return reply.code(201).send({ data: { id: scanId }, error: null });
   } catch (error) {
     request.log.error({ err: error }, "createScan failed");
     return reply.code(500).send({ data: null, error: "failed to store scan" });
   }
 });
+
+const SCAN_CACHE_TTL = 60;
+const SCAN_CACHE_LIMIT = 100;
 
 app.get("/api/scans", async (request, reply) => {
   const parsed = listScansQuery.safeParse(request.query);
@@ -106,13 +114,67 @@ app.get("/api/scans", async (request, reply) => {
     });
   }
 
+  const { owner, limit } = parsed.data;
+  const cacheKey = `scans:${owner.toLowerCase()}`;
+
   try {
-    const scans = await listScans(parsed.data.owner, parsed.data.limit);
-    return reply.send({ data: scans, error: null });
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      const all = JSON.parse(cached);
+      return reply.header("x-cache", "hit").send({ data: all.slice(0, limit), error: null });
+    }
+  } catch {
+    // Redis is optional for correctness; fall through to Postgres
+  }
+
+  try {
+    const scans = await listScans(owner, SCAN_CACHE_LIMIT);
+    await redis
+      .set(cacheKey, JSON.stringify(scans), "EX", SCAN_CACHE_TTL)
+      .catch(() => undefined);
+    return reply.header("x-cache", "miss").send({ data: scans.slice(0, limit), error: null });
   } catch (error) {
     request.log.error({ err: error }, "listScans failed");
     return reply.code(500).send({ data: null, error: "failed to read scans" });
   }
+});
+
+const worker = startWorker();
+
+app.post("/api/scans/async", async (request, reply) => {
+  const parsed = createScanBody.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      data: null,
+      error: "invalid body",
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const job = await scanQueue.add("scan", parsed.data);
+  return reply.code(202).send({ data: { jobId: job.id }, error: null });
+});
+
+app.get("/api/jobs/:id", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const job = await scanQueue.getJob(id);
+
+  if (!job) {
+    return reply.code(404).send({ data: null, error: "job not found" });
+  }
+
+  const state = await job.getState();
+
+  return reply.send({
+    data: {
+      id: job.id,
+      state,
+      result: job.returnvalue ?? null,
+      failedReason: job.failedReason ?? null,
+    },
+    error: null,
+  });
 });
 
 // ---------- lifecycle ----------
@@ -132,6 +194,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
     app.log.info(`${signal} received, shutting down`);
     await app.close();
+    await worker.close();
+    await scanQueue.close();
+    await closeRedis().catch(() => undefined);
     await closeDb();
     process.exit(0);
   });
